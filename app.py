@@ -13,8 +13,12 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 import io
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file (only in local development)
+# Vercel doesn't support .env files - use environment variables from dashboard instead
+try:
+    load_dotenv()
+except Exception:
+    pass  # Ignore .env loading errors in production
 
 from ai import extract_invoice_data_from_image, extract_invoice_data_from_text
 from mapping import create_invoice_rows, ARABIC_HEADERS

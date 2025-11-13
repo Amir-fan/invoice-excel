@@ -5,12 +5,14 @@ from PIL import Image
 import io
 
 # Try to import pdf2image, but handle the case where it's not available
+# On Vercel, pdf2image requires poppler which is not available, so we'll use PyMuPDF instead
 try:
     from pdf2image import convert_from_path
     PDF2IMAGE_AVAILABLE = True
-except ImportError:
+except (ImportError, OSError) as e:
     PDF2IMAGE_AVAILABLE = False
-    print("Warning: pdf2image not available. PDF processing will be limited.")
+    # Don't print warnings on import - can cause issues in serverless
+    pass
 
 # Try to import PyMuPDF as an alternative PDF processor
 try:
