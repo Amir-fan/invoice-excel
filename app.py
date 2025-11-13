@@ -20,13 +20,25 @@ try:
 except Exception:
     pass  # Ignore .env loading errors in production
 
-from ai import extract_invoice_data_from_image, extract_invoice_data_from_text
-from mapping import create_invoice_rows, ARABIC_HEADERS
-from utils import (
-    pdf_to_image, image_to_bytes, create_temp_file, 
-    cleanup_temp_file, is_pdf_file, is_image_file, check_pdf_dependencies,
-    get_pdf_installation_instructions
-)
+# Lazy imports to prevent crashes during module load on Vercel
+# Import only when functions are actually called
+try:
+    from ai import extract_invoice_data_from_image, extract_invoice_data_from_text
+    from mapping import create_invoice_rows, ARABIC_HEADERS
+    from utils import (
+        pdf_to_image, image_to_bytes, create_temp_file, 
+        cleanup_temp_file, is_pdf_file, is_image_file, check_pdf_dependencies,
+        get_pdf_installation_instructions
+    )
+except ImportError as e:
+    # If imports fail, log but don't crash - handlers will show error
+    import sys
+    print(f"WARNING: Import failed: {e}", file=sys.stderr)
+    # Set to None so we can check later
+    extract_invoice_data_from_image = None
+    extract_invoice_data_from_text = None
+    create_invoice_rows = None
+    ARABIC_HEADERS = None
 
 app = FastAPI(title="Invoice2Excel Web", version="1.0.0")
 
@@ -109,6 +121,10 @@ def _process_single_invoice(file: UploadFile, temp_file_path: str) -> list:
     Process a single invoice file and return rows.
     Helper function to process one invoice file.
     """
+    # Check if imports succeeded
+    if extract_invoice_data_from_image is None:
+        raise HTTPException(status_code=500, detail="Application not fully initialized - imports failed")
+    
     if DEBUG:
         print(f"DEBUG: Processing file: {file.filename}")
     
