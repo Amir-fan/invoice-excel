@@ -47,13 +47,20 @@ if DEBUG:
         print(f"DEBUG: Response status: {response.status_code}")
         return response
 
-# Templates
-templates = Jinja2Templates(directory="templates")
+# Templates - use absolute path for Vercel compatibility
+import os
+from pathlib import Path
+
+# Get the directory where app.py is located
+BASE_DIR = Path(__file__).parent
+TEMPLATES_DIR = BASE_DIR / "templates"
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     """Serve the main HTML page."""
-    with open("templates/index.html", "r", encoding="utf-8") as f:
+    html_path = TEMPLATES_DIR / "index.html"
+    with open(html_path, "r", encoding="utf-8") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
 
