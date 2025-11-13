@@ -20,7 +20,8 @@ try:
     PYMUPDF_AVAILABLE = True
 except ImportError:
     PYMUPDF_AVAILABLE = False
-    print("Warning: PyMuPDF not available. Installing it will enable PDF processing.")
+    # Don't print warnings on import - can cause issues in serverless
+    pass
 
 # Arabic digit mapping for normalization
 ARABIC_DIGIT_MAP = str.maketrans("٠١٢٣٤٥٦٧٨٩٫٬", "0123456789..")
