@@ -396,6 +396,7 @@ def extract_invoice_data_from_text(text: str) -> Optional[InvoiceData]:
 - Dates should be in DD-MM-YYYY format"""
 
         # Call OpenAI API
+        client = get_openai_client()
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
