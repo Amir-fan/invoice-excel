@@ -56,7 +56,13 @@ from pathlib import Path
 # Get the directory where app.py is located
 BASE_DIR = Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# Initialize templates - handle case where directory might not exist
+try:
+    templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+except Exception as e:
+    print(f"Warning: Could not initialize Jinja2Templates: {e}")
+    templates = None
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
