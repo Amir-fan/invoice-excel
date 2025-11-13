@@ -3,29 +3,49 @@ import sys
 import os
 import traceback
 
+# Log initialization
+print("Starting api/index.py handler...")
+print(f"Python version: {sys.version}")
+print(f"Current directory: {os.getcwd()}")
+print(f"Python path: {sys.path}")
+
 # Add parent directory to path so we can import app
 try:
-    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    current_file = os.path.abspath(__file__)
+    parent_dir = os.path.dirname(os.path.dirname(current_file))
+    print(f"Parent directory: {parent_dir}")
+    
     if parent_dir not in sys.path:
         sys.path.insert(0, parent_dir)
+        print(f"Added {parent_dir} to sys.path")
     
     # Enable debug mode if needed
     os.environ.setdefault("DEBUG", "false")
+    print(f"DEBUG mode: {os.getenv('DEBUG')}")
     
-    # Import the FastAPI app
+    # Try to import dependencies step by step
+    print("Attempting to import FastAPI...")
+    from fastapi import FastAPI
+    print("FastAPI imported successfully")
+    
+    print("Attempting to import app...")
     from app import app
+    print("App imported successfully")
     
     # Vercel expects a handler that can be called
     # For FastAPI on Vercel, we need to use mangum to convert ASGI to Lambda/HTTP
+    print("Attempting to import Mangum...")
     try:
         from mangum import Mangum
+        print("Mangum imported successfully")
         # Create Mangum adapter with lifespan disabled for Vercel
         handler = Mangum(app, lifespan="off")
+        print("Mangum handler created successfully")
     except ImportError as e:
         print(f"WARNING: Mangum not available: {e}")
         # If mangum is not available, try using the app directly
-        # Some Vercel configurations support FastAPI directly
         handler = app
+        print("Using app directly as handler")
         
 except Exception as e:
     # If import fails, create a simple error handler that will show the error
@@ -53,8 +73,9 @@ except Exception as e:
                 content={
                     "error": "Failed to initialize application",
                     "message": error_msg,
-                    "traceback": traceback_str,
-                    "path": path
+                    "traceback": traceback_str.split("\n")[-10:],  # Last 10 lines
+                    "path": path,
+                    "python_path": sys.path[:5]  # First 5 entries
                 }
             )
         
@@ -66,6 +87,7 @@ except Exception as e:
             handler = error_app
     except Exception as e2:
         # If even FastAPI import fails, create a minimal handler
+        print(f"CRITICAL: FastAPI import also failed: {e2}")
         def handler(event, context):
             return {
                 "statusCode": 500,
@@ -73,6 +95,8 @@ except Exception as e:
                 "body": {
                     "error": "Critical failure",
                     "message": f"Import error: {error_msg}, FastAPI error: {str(e2)}",
-                    "traceback": traceback_str
+                    "traceback": traceback_str.split("\n")[-10:]
                 }
             }
+
+print("Handler initialization complete")
