@@ -1,5 +1,5 @@
 # Vercel serverless function entry point
-# Following Vercel's FastAPI documentation: https://vercel.com/docs/frameworks/backend/fastapi
+# CRITICAL: All imports must be inside try/except to prevent crashes
 import sys
 import os
 import traceback
@@ -28,31 +28,35 @@ except Exception as e:
 # Disable .env loading - Vercel uses environment variables directly
 os.environ.setdefault("DEBUG", "false")
 
-# Initialize handler as None - we'll set it below
 handler = None
 
-# Try to import and create handler with comprehensive error handling
+# Try importing step by step with detailed error messages
 try:
-    log("Importing FastAPI...")
+    log("Step 1: Importing FastAPI...")
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
     log("✓ FastAPI imported")
     
-    # Try importing the real app
     try:
-        log("Importing app.py...")
+        log("Step 2: Importing app.py...")
+        # Try importing the real app
         from app import app
-        log("✓ app.py imported")
+        log("✓ app.py imported successfully")
         
-        # Vercel natively supports FastAPI - just export the app
         handler = app
         log("✓ Handler set to FastAPI app")
         
     except Exception as app_error:
-        # If importing app fails, create error handler
-        log(f"ERROR importing app: {app_error}")
-        log(traceback.format_exc())
+        # If importing app fails, create detailed error handler
+        error_msg = str(app_error)
+        error_tb = traceback.format_exc()
         
+        log("=" * 50)
+        log(f"ERROR importing app.py: {error_msg}")
+        log(error_tb)
+        log("=" * 50)
+        
+        # Create error app that shows the exact error
         error_app = FastAPI()
         
         @error_app.get("/")
@@ -61,19 +65,34 @@ try:
         @error_app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
         async def show_error(path: str = None):
             """Show detailed error information."""
-            error_msg = str(app_error)
-            error_tb = traceback.format_exc()
-            
             log(f"Error handler called for path: {path}")
+            
+            # Try to get more details about the error
+            import_details = {
+                "error": error_msg,
+                "error_type": type(app_error).__name__,
+                "traceback": error_tb.split("\n"),
+            }
+            
+            # Try to identify which specific import failed
+            if "ImportError" in error_msg or "ModuleNotFoundError" in error_msg:
+                import_details["diagnosis"] = "Missing dependency or module not found"
+            elif "SyntaxError" in error_msg:
+                import_details["diagnosis"] = "Syntax error in Python code"
+            elif "AttributeError" in error_msg:
+                import_details["diagnosis"] = "Missing attribute or function"
+            else:
+                import_details["diagnosis"] = "Unknown import error"
             
             return JSONResponse(
                 status_code=500,
                 content={
                     "error": "Application initialization failed",
-                    "message": error_msg,
-                    "traceback": error_tb.split("\n"),
+                    "details": import_details,
                     "path": path,
-                    "python_path": sys.path[:5] if sys.path else []
+                    "python_path": sys.path[:5] if sys.path else [],
+                    "parent_dir": parent_dir,
+                    "help": "Check the 'error' and 'traceback' fields above for details"
                 }
             )
         
@@ -81,10 +100,16 @@ try:
         log("✓ Error handler created")
         
 except Exception as fatal_error:
-    # If even FastAPI import fails, try to create minimal handler
-    log(f"FATAL ERROR: {fatal_error}")
-    log(traceback.format_exc())
+    # If even FastAPI import fails
+    error_msg = str(fatal_error)
+    error_tb = traceback.format_exc()
     
+    log("=" * 50)
+    log(f"FATAL ERROR: {error_msg}")
+    log(error_tb)
+    log("=" * 50)
+    
+    # This should never happen, but just in case
     try:
         from fastapi import FastAPI
         from fastapi.responses import JSONResponse
@@ -98,20 +123,19 @@ except Exception as fatal_error:
                 status_code=500,
                 content={
                     "error": "Fatal initialization error",
-                    "message": str(fatal_error),
-                    "traceback": traceback.format_exc().split("\n")
+                    "message": error_msg,
+                    "traceback": error_tb.split("\n"),
+                    "help": "FastAPI import failed - check requirements.txt"
                 }
             )
         
         handler = fatal_app
         log("✓ Fatal error handler created")
-        
-    except Exception as e2:
-        log(f"CRITICAL: Cannot create any handler: {e2}")
+    except:
+        log("CRITICAL: Cannot create any handler")
         handler = None
 
-# CRITICAL: Make sure handler is ALWAYS defined
-# If it's None, Vercel will crash
+# Ensure handler is always defined
 if handler is None:
     log("CRITICAL: Handler is None - creating emergency handler")
     try:
@@ -131,14 +155,13 @@ if handler is None:
         log("✓ Emergency handler created")
     except:
         log("ABSOLUTE FAILURE - Cannot create emergency handler")
-        # This will crash Vercel, but we've tried everything
-        handler = None
 
 log("=" * 50)
 log("Handler initialization complete")
 log(f"Handler type: {type(handler)}")
+log(f"Handler is None: {handler is None}")
 log("=" * 50)
 
-# Verify handler exists
+# Final check - raise error if handler is still None
 if handler is None:
     raise RuntimeError("Handler is None - this will crash Vercel!")
