@@ -58,10 +58,18 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     """Serve the main HTML page."""
-    html_path = TEMPLATES_DIR / "index.html"
-    with open(html_path, "r", encoding="utf-8") as f:
-        html_content = f.read()
-    return HTMLResponse(content=html_content)
+    try:
+        html_path = TEMPLATES_DIR / "index.html"
+        with open(html_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+    except Exception as e:
+        # Fallback if template file not found
+        print(f"ERROR reading template: {e}")
+        return HTMLResponse(
+            content=f"<html><body><h1>Error</h1><p>Template file not found: {e}</p></body></html>",
+            status_code=500
+        )
 
 @app.get("/health")
 async def health_check():
