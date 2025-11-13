@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice2Excel - تحويل الفواتير إلى إكسل</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            color: #2c3e50;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.06);
+            padding: 48px;
+            max-width: 700px;
+            width: 100%;
+            text-align: center;
+        }
+        
+        .logo {
+            font-size: 2.25rem;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+        
+        .subtitle {
+            color: #6c757d;
+            margin-bottom: 40px;
+            font-size: 1rem;
+            font-weight: 400;
+        }
+        
+        .upload-area {
+            border: 2px dashed #dee2e6;
+            border-radius: 12px;
+            padding: 48px 24px;
+            margin: 32px 0;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            background: #f8f9fa;
+        }
+        
+        .upload-area:hover {
+            border-color: #495057;
+            background: #f1f3f5;
+        }
+        
+        .upload-area.dragover {
+            border-color: #212529;
+            background: #e9ecef;
+            border-width: 2px;
+        }
+        
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            opacity: 0.7;
+        }
+        
+        .upload-text {
+            color: #495057;
+            margin-bottom: 12px;
+            font-size: 1rem;
+            font-weight: 500;
+        }
+        
+        .upload-text-secondary {
+            color: #868e96;
+            font-size: 0.875rem;
+            margin-bottom: 8px;
+        }
+        
+        .file-input {
+            display: none;
+        }
+        
+        .file-list {
+            margin: 24px 0;
+            text-align: right;
+            display: none;
+        }
+        
+        .file-list.show {
+            display: block;
+        }
+        
+        .file-item {
+            background: #f8f9fa;
+            padding: 12px 16px;
+            margin: 8px 0;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+            color: #495057;
+        }
+        
+        .file-item .file-name {
+            flex: 1;
+            text-align: right;
+        }
+        
+        .file-item .file-remove {
+            cursor: pointer;
+            color: #dc3545;
+            margin-right: 12px;
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        
+        .file-item .file-remove:hover {
+            background: #ffe6e6;
+        }
+        
+        .btn {
+            background: #212529;
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin: 10px;
+            min-width: 160px;
+        }
+        
+        .btn:hover {
+            background: #000;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .progress {
+            width: 100%;
+            height: 8px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            margin: 24px 0;
+            overflow: hidden;
+            display: none;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background: #212529;
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 4px;
+        }
+        
+        .status {
+            margin: 24px 0;
+            padding: 16px 20px;
+            border-radius: 8px;
+            display: none;
+            font-size: 0.95rem;
+        }
+        
+        .status.success {
+            background-color: #d1e7dd;
+            color: #0f5132;
+            border: 1px solid #badbcc;
+        }
+        
+        .status.error {
+            background-color: #f8d7da;
+            color: #842029;
+            border: 1px solid #f5c2c7;
+        }
+        
+        .download-link {
+            display: inline-block;
+            background: #198754;
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            margin-top: 16px;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+        
+        .download-link:hover {
+            background: #157347;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(25, 135, 84, 0.3);
+        }
+        
+        .supported-formats {
+            margin-top: 16px;
+            color: #6c757d;
+            font-size: 0.875rem;
+        }
+        
+        .loading {
+            display: none;
+            margin: 24px 0;
+        }
+        
+        .loading.show {
+            display: block;
+        }
+        
+        .spinner {
+            border: 3px solid #e9ecef;
+            border-top: 3px solid #212529;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            color: #6c757d;
+            font-size: 0.95rem;
+        }
+        
+        .processing-info {
+            margin-top: 12px;
+            color: #868e96;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">Invoice2Excel</div>
+        <div class="subtitle">تحويل الفواتير العربية والإنجليزية إلى ملف إكسل منظم</div>
+        
+        <form id="uploadForm" enctype="multipart/form-data">
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📄</div>
+                <div class="upload-text">اضغط لاختيار ملفات أو اسحب وأفلت الملفات هنا</div>
+                <div class="upload-text-secondary">يمكنك رفع ملف واحد أو عدة ملفات في نفس الوقت</div>
+                <div class="supported-formats">يدعم: PDF, JPG, JPEG, PNG</div>
+                <input type="file" id="fileInput" class="file-input" accept=".pdf,.jpg,.jpeg,.png" multiple required>
+            </div>
+            
+            <div class="file-list" id="fileList"></div>
+            
+            <button type="submit" class="btn" id="submitBtn">معالجة الفواتير</button>
+        </form>
+        
+        <div class="progress" id="progress">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div class="loading-text">جاري معالجة الفواتير...</div>
+            <div class="processing-info" id="processingInfo"></div>
+        </div>
+        
+        <div class="status" id="status"></div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const uploadForm = document.getElementById('uploadForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const progress = document.getElementById('progress');
+        const progressBar = document.getElementById('progressBar');
+        const loading = document.getElementById('loading');
+        const status = document.getElementById('status');
+        const fileList = document.getElementById('fileList');
+        const processingInfo = document.getElementById('processingInfo');
+
+        // Store selected files
+        let selectedFiles = [];
+
+        // Drag and drop functionality
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = Array.from(e.dataTransfer.files);
+            handleFiles(files);
+        });
+
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFiles(Array.from(e.target.files));
+            } else {
+                // Reset if no files selected
+                selectedFiles = [];
+                updateFileList();
+            }
+        });
+
+        function handleFiles(files) {
+            // Filter valid file types
+            const validFiles = files.filter(file => {
+                const ext = file.name.toLowerCase().split('.').pop();
+                return ['pdf', 'jpg', 'jpeg', 'png'].includes(ext);
+            });
+
+            if (validFiles.length === 0) {
+                showStatus('الرجاء اختيار ملفات صالحة (PDF, JPG, JPEG, PNG)', 'error');
+                return;
+            }
+
+            // Add to selected files (avoid duplicates)
+            validFiles.forEach(file => {
+                if (!selectedFiles.find(f => f.name === file.name && f.size === file.size)) {
+                    selectedFiles.push(file);
+                }
+            });
+
+            updateFileList();
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+        }
+
+        function updateFileList() {
+            if (selectedFiles.length === 0) {
+                fileList.classList.remove('show');
+                return;
+            }
+
+            fileList.classList.add('show');
+            fileList.innerHTML = selectedFiles.map((file, index) => `
+                <div class="file-item">
+                    <span class="file-name">${file.name}</span>
+                    <span class="file-remove" onclick="removeFile(${index})">×</span>
+                </div>
+            `).join('');
+
+            // Update upload text
+            const uploadText = uploadArea.querySelector('.upload-text');
+            if (selectedFiles.length === 1) {
+                uploadText.textContent = `تم اختيار ملف واحد`;
+            } else {
+                uploadText.textContent = `تم اختيار ${selectedFiles.length} ملفات`;
+            }
+        }
+
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // If selectedFiles is empty but fileInput has files, use fileInput files
+            if (selectedFiles.length === 0 && fileInput.files.length > 0) {
+                handleFiles(Array.from(fileInput.files));
+            }
+            
+            if (selectedFiles.length === 0) {
+                showStatus('الرجاء اختيار ملف واحد على الأقل', 'error');
+                return;
+            }
+            
+            // Prepare form data
+            const formData = new FormData();
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+            
+            // Show loading state
+            submitBtn.disabled = true;
+            loading.classList.add('show');
+            progress.style.display = 'block';
+            status.style.display = 'none';
+            processingInfo.textContent = `جاري معالجة ${selectedFiles.length} ملف...`;
+            
+            // Reset progress
+            updateProgress(10);
+            
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                updateProgress(90);
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    
+                    // Create download link
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = url;
+                    downloadLink.download = 'invoice_data.xlsx';
+                    downloadLink.className = 'download-link';
+                    downloadLink.textContent = 'تحميل ملف الإكسل';
+                    
+                    // Clear status and add download link
+                    status.innerHTML = '';
+                    showStatus(`تم تحويل ${selectedFiles.length} فاتورة بنجاح!`, 'success');
+                    status.appendChild(downloadLink);
+                    
+                    updateProgress(100);
+                    
+                    // Auto-download
+                    setTimeout(() => {
+                        downloadLink.click();
+                    }, 500);
+                    
+                    // Reset file selection after 3 seconds
+                    setTimeout(() => {
+                        selectedFiles = [];
+                        updateFileList();
+                        updateProgress(0);
+                    }, 3000);
+                    
+                } else {
+                    let errorMessage = 'خطأ غير معروف';
+                    try {
+                        const responseText = await response.text();
+                        try {
+                            const errorData = JSON.parse(responseText);
+                            errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
+                        } catch {
+                            errorMessage = responseText || `خطأ ${response.status}: ${response.statusText}`;
+                        }
+                    } catch (error) {
+                        errorMessage = `خطأ ${response.status}: ${response.statusText}`;
+                    }
+                    showStatus(`خطأ في المعالجة: ${errorMessage}`, 'error');
+                    updateProgress(0);
+                }
+                
+            } catch (error) {
+                showStatus(`خطأ في الاتصال: ${error.message}`, 'error');
+                updateProgress(0);
+            } finally {
+                submitBtn.disabled = false;
+                loading.classList.remove('show');
+                processingInfo.textContent = '';
+            }
+        });
+
+        function showStatus(message, type) {
+            const existingLink = status.querySelector('.download-link');
+            status.className = `status ${type}`;
+            
+            if (!existingLink) {
+                status.textContent = message;
+            } else {
+                status.innerHTML = message;
+                status.appendChild(existingLink);
+            }
+            
+            status.style.display = 'block';
+        }
+
+        function updateProgress(percent) {
+            progressBar.style.width = percent + '%';
+            if (percent === 100) {
+                setTimeout(() => {
+                    progress.style.display = 'none';
+                }, 1000);
+            }
+        }
+
+        // Make removeFile available globally
+        window.removeFile = removeFile;
+    </script>
+</body>
+</html>
