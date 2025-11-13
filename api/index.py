@@ -1,74 +1,98 @@
 # Vercel serverless function entry point
-# Minimal handler to catch all errors and show them
+# Start with absolute minimum to test if Vercel Python works at all
 import sys
 import os
 import traceback
 
-# Add parent directory to path
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
+# Write error to a file that we can read if needed
+def log_error(msg):
+    try:
+        print(msg, file=sys.stderr, flush=True)
+        print(msg, flush=True)
+    except:
+        pass
 
-# Disable .env loading - Vercel uses environment variables directly
-os.environ.setdefault("DEBUG", "false")
+# Add parent directory to path
+try:
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+    log_error(f"Parent dir: {parent_dir}")
+    log_error(f"Current dir: {os.getcwd()}")
+    log_error(f"Python path: {sys.path[:3]}")
+except Exception as e:
+    log_error(f"Error setting path: {e}")
 
 handler = None
 
+# Try step by step
 try:
-    # Import FastAPI first
+    log_error("Step 1: Importing FastAPI...")
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
+    log_error("✓ FastAPI imported")
     
-    # Import the app
-    from app import app
+    log_error("Step 2: Creating error app...")
+    error_app = FastAPI()
     
-    # Import Mangum for ASGI adapter
-    from mangum import Mangum
-    
-    # Create handler
-    handler = Mangum(app, lifespan="off")
-    
-except Exception as e:
-    # If anything fails, create an error handler that shows the error
-    error_msg = str(e)
-    error_traceback = traceback.format_exc()
-    
-    # Log to stderr (Vercel captures this)
-    print(f"ERROR: {error_msg}", file=sys.stderr, flush=True)
-    print(error_traceback, file=sys.stderr, flush=True)
-    
-    # Create error app
-    try:
-        from fastapi import FastAPI
-        from fastapi.responses import JSONResponse
+    @error_app.get("/")
+    @error_app.post("/upload")
+    @error_app.get("/health")
+    @error_app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+    async def debug_handler(path: str = None):
+        log_error(f"Request received: {path}")
         
-        error_app = FastAPI()
-        
-        @error_app.get("/")
-        @error_app.post("/upload")
-        @error_app.get("/health")
-        @error_app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-        async def show_error(path: str = None):
+        # Try to import the real app now, at request time
+        try:
+            from app import app as real_app
+            from mangum import Mangum
+            real_handler = Mangum(real_app, lifespan="off")
+            
+            # Call the real handler
+            return await real_handler({}, None)
+        except Exception as e:
+            error_msg = str(e)
+            error_tb = traceback.format_exc()
+            log_error(f"Error importing real app: {error_msg}")
+            log_error(error_tb)
+            
             return JSONResponse(
                 status_code=500,
                 content={
-                    "error": "Application initialization failed",
+                    "error": "Application error",
                     "message": error_msg,
-                    "traceback": error_traceback.split("\n"),
-                    "python_path": sys.path[:5],
-                    "parent_dir": parent_dir,
-                    "current_dir": os.getcwd()
+                    "traceback": error_tb.split("\n"),
+                    "path": path,
+                    "sys_path": sys.path[:5]
                 }
             )
-        
-        from mangum import Mangum
-        handler = Mangum(error_app, lifespan="off")
-    except Exception as e2:
-        # Ultimate fallback
-        print(f"CRITICAL: Cannot create error handler: {e2}", file=sys.stderr, flush=True)
-        def handler(event, context):
-            return {
-                "statusCode": 500,
-                "headers": {"Content-Type": "application/json"},
-                "body": '{"error": "Critical initialization failure"}'
-            }
+    
+    log_error("Step 3: Importing Mangum...")
+    from mangum import Mangum
+    handler = Mangum(error_app, lifespan="off")
+    log_error("✓ Handler created")
+    
+except Exception as e:
+    error_msg = str(e)
+    error_tb = traceback.format_exc()
+    log_error(f"FATAL ERROR: {error_msg}")
+    log_error(error_tb)
+    
+    # Ultimate fallback - return a dict
+    def handler(event, context):
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": '{"error": "Handler initialization failed", "message": "' + error_msg.replace('"', '\\"') + '"}'
+        }
+
+if handler is None:
+    log_error("CRITICAL: Handler is None!")
+    def handler(event, context):
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": '{"error": "Handler not initialized"}'
+        }
+
+log_error("✓ Handler initialization complete")
