@@ -48,7 +48,6 @@ if DEBUG:
         return response
 
 # Templates - use absolute path for Vercel compatibility
-import os
 from pathlib import Path
 
 # Get the directory where app.py is located
