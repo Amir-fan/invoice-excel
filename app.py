@@ -71,8 +71,9 @@ async def health_check():
     
     # Check if OpenAI API key is configured (don't validate it to avoid slow health checks)
     try:
-        from ai import client
-        api_key_configured = client.api_key is not None and len(client.api_key) > 0
+        from ai import get_openai_client
+        api_key = os.getenv("OPENAI_API_KEY")
+        api_key_configured = api_key is not None and len(api_key) > 0
         api_key_status = "configured" if api_key_configured else "not configured"
     except Exception:
         api_key_status = "unknown"

@@ -8,13 +8,21 @@ from pydantic import BaseModel, Field
 from utils import extract_number
 
 # Initialize OpenAI client with API key from environment variable
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError(
-        "OPENAI_API_KEY environment variable is not set. "
-        "Please set it in your environment or .env file."
-    )
-client = OpenAI(api_key=api_key)
+# Lazy initialization - only create client when needed to avoid errors during import
+_client = None
+
+def get_openai_client():
+    """Get or create OpenAI client. Lazy initialization."""
+    global _client
+    if _client is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "OPENAI_API_KEY environment variable is not set. "
+                "Please set it in your environment or .env file."
+            )
+        _client = OpenAI(api_key=api_key)
+    return _client
 
 # ============================================================================
 # DATA MODELS
@@ -251,6 +259,7 @@ def _extract_with_ai_vision(image_bytes: bytes) -> Optional[InvoiceData]:
         user_prompt = _get_user_prompt()
         
         # Call OpenAI API with image
+        client = get_openai_client()
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
