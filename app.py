@@ -36,7 +36,6 @@ app.add_middleware(
 )
 
 # Add logging middleware (only in debug mode)
-import os
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 if DEBUG:
