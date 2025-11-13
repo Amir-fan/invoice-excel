@@ -17,78 +17,57 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 log("=" * 50)
-log("Starting handler initialization...")
+log("Initializing handler...")
+log(f"Python: {sys.version}")
 log(f"Parent dir: {parent_dir}")
 log(f"Current dir: {os.getcwd()}")
 
 handler = None
 
+# Try to import everything step by step
 try:
-    log("Importing FastAPI...")
+    log("Step 1: Importing FastAPI...")
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
-    log("✓ FastAPI imported")
+    log("✓ FastAPI OK")
     
-    log("Creating debug app...")
-    debug_app = FastAPI()
-    
-    @debug_app.get("/")
-    @debug_app.post("/upload")
-    @debug_app.get("/health")
-    @debug_app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-    async def request_handler(path: str = None):
-        """Handle request - lazy load the real app."""
-        log(f"Request received for path: {path}")
-        
-        # Try to import and use the real app
-        try:
-            log("Attempting to import real app...")
-            from app import app as real_app
-            log("✓ Real app imported")
-            
-            # Import Mangum
-            from mangum import Mangum
-            real_handler = Mangum(real_app, lifespan="off")
-            
-            # Note: We can't actually call the real handler from here easily
-            # Instead, let's try to import it once at module level
-            # But for now, return error info
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "status": "debug_mode",
-                    "message": "Debug handler is working. Real app imported successfully.",
-                    "path": path
-                }
-            )
-        except Exception as e:
-            error_msg = str(e)
-            error_tb = traceback.format_exc()
-            log(f"ERROR importing real app: {error_msg}")
-            log(error_tb)
-            
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "error": "Failed to import real application",
-                    "message": error_msg,
-                    "traceback": error_tb.split("\n"),
-                    "path": path
-                }
-            )
-    
-    log("Importing Mangum...")
+    log("Step 2: Importing Mangum...")
     from mangum import Mangum
-    handler = Mangum(debug_app, lifespan="off")
-    log("✓ Handler created with debug app")
+    log("✓ Mangum OK")
+    
+    log("Step 3: Importing utils...")
+    from utils import (
+        pdf_to_image, image_to_bytes, create_temp_file, 
+        cleanup_temp_file, is_pdf_file, is_image_file
+    )
+    log("✓ utils OK")
+    
+    log("Step 4: Importing ai...")
+    from ai import extract_invoice_data_from_image, extract_invoice_data_from_text
+    log("✓ ai OK")
+    
+    log("Step 5: Importing mapping...")
+    from mapping import create_invoice_rows, ARABIC_HEADERS
+    log("✓ mapping OK")
+    
+    log("Step 6: Importing app...")
+    from app import app
+    log("✓ app OK")
+    
+    log("Step 7: Creating Mangum handler...")
+    handler = Mangum(app, lifespan="off")
+    log("✓ Handler created successfully!")
     
 except Exception as e:
     error_msg = str(e)
     error_tb = traceback.format_exc()
-    log(f"FATAL ERROR during initialization: {error_msg}")
-    log(error_tb)
     
-    # Create minimal error handler
+    log("=" * 50)
+    log(f"ERROR: {error_msg}")
+    log(error_tb)
+    log("=" * 50)
+    
+    # Create error handler that shows the error
     try:
         from fastapi import FastAPI
         from fastapi.responses import JSONResponse
@@ -98,27 +77,55 @@ except Exception as e:
         
         @error_app.get("/")
         @error_app.post("/upload")
-        @error_app.api_route("/{path:path}", methods=["GET", "POST"])
-        async def fatal_error_handler(path: str = None):
+        @error_app.get("/health")
+        @error_app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+        async def show_error(path: str = None):
+            log(f"Error handler called for path: {path}")
             return JSONResponse(
                 status_code=500,
                 content={
-                    "error": "Fatal initialization error",
+                    "error": "Application initialization failed",
                     "message": error_msg,
-                    "traceback": error_tb.split("\n")
+                    "traceback": error_tb.split("\n"),
+                    "path": path,
+                    "parent_dir": parent_dir,
+                    "current_dir": os.getcwd(),
+                    "python_path": sys.path[:5]
                 }
             )
         
         handler = Mangum(error_app, lifespan="off")
         log("✓ Error handler created")
+        
     except Exception as e2:
-        log(f"CRITICAL: Cannot even create error handler: {e2}")
-        # Last resort - but this won't work with ASGI
+        log(f"CRITICAL: Cannot create error handler: {e2}")
+        log(traceback.format_exc())
         handler = None
 
 if handler is None:
-    log("CRITICAL: Handler is None!")
+    log("CRITICAL: Handler is None - Vercel will crash!")
+    # This is bad - we need at least something
+    try:
+        from fastapi import FastAPI
+        from fastapi.responses import JSONResponse
+        from mangum import Mangum
+        
+        final_app = FastAPI()
+        
+        @final_app.get("/")
+        async def final_fallback():
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Handler initialization completely failed"}
+            )
+        
+        handler = Mangum(final_app, lifespan="off")
+        log("✓ Created final fallback handler")
+    except:
+        log("ABSOLUTE FAILURE - Cannot create any handler")
+        # This will crash Vercel, but at least we tried
+        handler = None
 
 log("=" * 50)
-log("Handler initialization complete!")
+log("Handler initialization complete")
 log("=" * 50)
