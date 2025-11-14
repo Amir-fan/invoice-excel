@@ -1,6 +1,6 @@
 import os
 import tempfile
-from typing import Optional, Union
+from typing import Optional, Union, List
 from PIL import Image
 import io
 
@@ -93,6 +93,32 @@ def pdf_to_image_pymupdf(pdf_path: str, page_number: int = 0, dpi: int = 300) ->
         
     except Exception as e:
         print(f"Error converting PDF with PyMuPDF: {e}")
+        return None
+
+
+def extract_pdf_text_lines(pdf_path: str) -> Optional[List[str]]:
+    """
+    Extract text lines from a PDF using PyMuPDF.
+
+    Returns a list of non-empty lines in reading order, or None if extraction fails.
+    """
+    if not PYMUPDF_AVAILABLE:
+        return None
+
+    try:
+        doc = fitz.open(pdf_path)
+        lines: List[str] = []
+        for page in doc:
+            # Get plain text for the page and split into lines
+            text = page.get_text("text") or ""
+            for raw_line in text.splitlines():
+                line = raw_line.strip()
+                if line:
+                    lines.append(line)
+        doc.close()
+        return lines if lines else None
+    except Exception as e:
+        print(f"Error extracting text from PDF with PyMuPDF: {e}")
         return None
 
 def pdf_to_image(pdf_path: str, page_number: int = 0, dpi: int = 300) -> Optional[Image.Image]:

@@ -23,12 +23,22 @@ except Exception:
 # Lazy imports to prevent crashes during module load on Vercel
 # Import only when functions are actually called
 try:
-    from ai import extract_invoice_data_from_image, extract_invoice_data_from_text
+    from ai import (
+        extract_invoice_data_from_image,
+        extract_invoice_data_from_text,
+        extract_invoice_data_from_pdf_text_with_lines,
+    )
     from mapping import create_invoice_rows, ARABIC_HEADERS
     from utils import (
-        pdf_to_image, image_to_bytes, create_temp_file, 
-        cleanup_temp_file, is_pdf_file, is_image_file, check_pdf_dependencies,
-        get_pdf_installation_instructions
+        pdf_to_image,
+        image_to_bytes,
+        create_temp_file,
+        cleanup_temp_file,
+        is_pdf_file,
+        is_image_file,
+        check_pdf_dependencies,
+        get_pdf_installation_instructions,
+        extract_pdf_text_lines,
     )
 except ImportError as e:
     # If imports fail, log but don't crash - handlers will show error
@@ -37,6 +47,7 @@ except ImportError as e:
     # Set to None so we can check later
     extract_invoice_data_from_image = None
     extract_invoice_data_from_text = None
+    extract_invoice_data_from_pdf_text_with_lines = None
     create_invoice_rows = None
     ARABIC_HEADERS = None
 
@@ -134,19 +145,39 @@ def _process_single_invoice(file: UploadFile, temp_file_path: str) -> list:
     if is_pdf_file(file.filename):
         if DEBUG:
             print(f"DEBUG: Processing PDF file: {file.filename}")
-        # Try to convert PDF to image first
-        image = pdf_to_image(temp_file_path)
-        if image:
+
+        # First, try text-based extraction: use PyMuPDF to get the exact PDF text,
+        # then let GPT-4o parse that text into structured JSON, and finally
+        # align each item description to the exact PDF line that contains its numbers.
+        try:
+            lines = extract_pdf_text_lines(temp_file_path)
+            if lines and extract_invoice_data_from_pdf_text_with_lines is not None:
+                if DEBUG:
+                    print(f"DEBUG: Extracted {len(lines)} text line(s) from PDF")
+                    print("DEBUG: Calling extract_invoice_data_from_pdf_text_with_lines (GPT over text + alignment)...")
+                text = "\n".join(lines)
+                invoice_data = extract_invoice_data_from_pdf_text_with_lines(text, lines)
+                if invoice_data and DEBUG:
+                    print("DEBUG: GPT text-based extraction + alignment succeeded")
+        except Exception as e:
+            print(f"WARNING: Text-based GPT extraction failed for {file.filename}: {e}")
+
+        # If text-based extraction failed, fall back to image + vision
+        if not invoice_data:
             if DEBUG:
-                print(f"DEBUG: PDF converted to image: {image.size}")
-                print("DEBUG: Calling AI extraction...")
-            image_bytes = image_to_bytes(image)
-            invoice_data = extract_invoice_data_from_image(image_bytes)
-            if DEBUG:
-                print(f"DEBUG: AI extraction completed")
-        else:
-            if DEBUG:
-                print("DEBUG: PDF to image conversion failed")
+                print("DEBUG: Falling back to PDF-to-image + AI vision pipeline")
+            image = pdf_to_image(temp_file_path)
+            if image:
+                if DEBUG:
+                    print(f"DEBUG: PDF converted to image: {image.size}")
+                    print("DEBUG: Calling AI image extraction...")
+                image_bytes = image_to_bytes(image)
+                invoice_data = extract_invoice_data_from_image(image_bytes)
+                if DEBUG:
+                    print("DEBUG: AI image extraction completed")
+            else:
+                if DEBUG:
+                    print("DEBUG: PDF to image conversion failed")
     elif is_image_file(file.filename):
         # Read image file directly
         with open(temp_file_path, "rb") as f:
@@ -245,12 +276,24 @@ async def upload_files(files: list[UploadFile] = File(...)):
                     if temp_file_path in temp_files:
                         temp_files.remove(temp_file_path)
         
-        # Check if we got any data
+        # If we got no data at all, create placeholder rows for failed files
+        # instead of raising an error, so the user still gets an Excel file
         if not all_rows:
-            error_msg = "Failed to extract data from any files."
             if failed_files:
-                error_msg += f" Failed files: {', '.join(failed_files)}"
-            raise HTTPException(status_code=500, detail=error_msg)
+                if DEBUG:
+                    print("DEBUG: No successful extractions, creating placeholder rows.")
+                all_rows = []
+                for fname in failed_files:
+                    # Create an empty row with a message in the description column
+                    row = {header: "" for header in ARABIC_HEADERS}
+                    row["الوصف"] = f"فشل استخراج البيانات من الملف: {fname}"
+                    all_rows.append(row)
+            else:
+                # This should not normally happen, but keep the old error as a fallback
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to extract data from any files (no details available)."
+                )
         
         # Create Excel file with all rows
         if DEBUG:
@@ -327,20 +370,22 @@ def create_excel_file(rows: list) -> bytes:
     for row_idx, row_data in enumerate(rows, start=2):  # Start at row 2 (after header)
         for col_idx, header in enumerate(ARABIC_HEADERS, 1):
             value = row_data.get(header, 0)
+
+            # For numeric monetary fields we keep up to 3 decimal places (as in invoices)
+            # to avoid Excel rounding 1999.998 to 2000.00 in the display.
+            numeric_headers = [
+                "الكمية", "سعر الوحدة", "المبلغ", "الخصم", "الاجمالي",
+                "إجمالي قيمة الفاتورة", "تسلسل مصدر الدخل", "الرقم الضريبي"
+            ]
+            if header in numeric_headers and isinstance(value, (int, float)):
+                value = round(float(value), 3)
+
             cell = ws.cell(row=row_idx, column=col_idx, value=value)
             
             # Format numeric cells
-            numeric_headers = [
-                "الكمية", "سعر الوحدة", "المبلغ", "الخصم", "الاجمالي", 
-                "إجمالي قيمة الفاتورة", "تسلسل مصدر الدخل", "الرقم الضريبي"
-            ]
             if isinstance(value, (int, float)) and header in numeric_headers:
-                if header in ["الكمية"]:
-                    # Quantity can be integer or float
-                    cell.number_format = '#,##0' if value == int(value) else '#,##0.00'
-                else:
-                    # Monetary values with 2 decimal places
-                    cell.number_format = '#,##0.00'
+                # Use three decimal places to match invoice formatting
+                cell.number_format = '#,##0.000'
                 cell.alignment = Alignment(horizontal='right', vertical='center')
             else:
                 # Text fields - center align
