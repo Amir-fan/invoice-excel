@@ -259,7 +259,9 @@ def _post_process_extracted_data(data: Dict[str, Any]) -> Dict[str, Any]:
         "اسم المشتري": "buyer_name",
         "رقم المشتري": "buyer_number",
         "رقم الهاتف": "phone_number",
+        "هاتف": "phone_number",
         "المدينة": "city",
+        "العنوان": "city",  # Treat address as city when no separate city field
         "مجموع قيمة الخصم": "total_discount",
         "إجمالي قيمة الفاتورة": "grand_total",
     }
@@ -268,11 +270,28 @@ def _post_process_extracted_data(data: Dict[str, Any]) -> Dict[str, Any]:
         if ar_key in data and en_key not in data:
             data[en_key] = data[ar_key]
 
-    # Also handle common English variations the model might use for this field
+    # Also handle common English variations or slightly different keys
     if "income_source_number" in data and "income_source_sequence" not in data:
         data["income_source_sequence"] = data["income_source_number"]
     if "income_source" in data and "income_source_sequence" not in data:
         data["income_source_sequence"] = data["income_source"]
+
+    # Normalize phone number field variants
+    if "phone_number" not in data:
+        if "phone" in data:
+            data["phone_number"] = data["phone"]
+        elif "mobile" in data:
+            data["phone_number"] = data["mobile"]
+        else:
+            # Look for any Arabic key that contains the word "هاتف" (e.g. "رقم الهاتف:", "هاتف المشتري")
+            for k, v in list(data.items()):
+                if isinstance(k, str) and "هاتف" in k and v:
+                    data["phone_number"] = v
+                    break
+
+    # If city missing but there is an address field in English, use it as city
+    if ("city" not in data or not data.get("city")) and "address" in data and data["address"]:
+        data["city"] = data["address"]
 
     # Normalize items list if item objects use Arabic keys
     raw_items = data.get("items")
@@ -363,7 +382,7 @@ def _extract_with_ai_vision(image_bytes: bytes) -> Optional[InvoiceData]:
         # Get prompts
         system_prompt = _get_system_prompt()
         user_prompt = _get_user_prompt()
-        
+
         # Call OpenAI API with image
         client = get_openai_client()
         response = client.chat.completions.create(
@@ -379,7 +398,7 @@ def _extract_with_ai_vision(image_bytes: bytes) -> Optional[InvoiceData]:
             temperature=0,
             max_tokens=2000  # Increased for more detailed extraction
         )
-        
+
         # Extract JSON from response
         json_content = response.choices[0].message.content
 
@@ -403,7 +422,7 @@ def _extract_with_ai_vision(image_bytes: bytes) -> Optional[InvoiceData]:
         invoice_data = _post_process_invoice_data(invoice_data)
         
         return invoice_data
-        
+
     except Exception as e:
         error_msg = str(e)
         # Check for specific error types
@@ -420,17 +439,9 @@ def _extract_with_ai_vision(image_bytes: bytes) -> Optional[InvoiceData]:
 
 
 def _extract_with_ocr(image_bytes: bytes) -> Optional[InvoiceData]:
-    """
-    Extract invoice data using a simple approach without external OCR dependencies.
-
-    NOTE: Previously this function returned a *hardcoded sample invoice* as a
-    fallback. That caused every invoice to look identical when the AI vision
-    path failed, which is very dangerous/wrong for real usage.
-
-    For safety and correctness, this fallback is now disabled and simply
-    returns None so that we never fabricate invoice data.
-    """
-    return None
+    # OCR-only fallback is disabled to avoid fabricating invoice data.
+    # Always return None so the caller knows AI vision/text failed.
+        return None
 
 
 def _is_valid_extraction(invoice_data: InvoiceData) -> bool:
@@ -450,7 +461,7 @@ def _is_valid_extraction(invoice_data: InvoiceData) -> bool:
         "INV123", "12345", "XYZ", "Corporation", "Company", "Test",
         "Sample", "Example", "Demo", "Placeholder"
     ]
-
+    
     # Check invoice number (try both new and legacy fields)
     invoice_num = (
         invoice_data.electronic_invoice_number
@@ -461,14 +472,14 @@ def _is_valid_extraction(invoice_data: InvoiceData) -> bool:
         invoice_num_str = str(invoice_num).lower()
         if any(pattern.lower() in invoice_num_str for pattern in fake_patterns):
             return False
-
+    
     # Check buyer/customer name (try both new and legacy fields)
     buyer_name = invoice_data.buyer_name or invoice_data.customer_name
     if buyer_name:
         buyer_name_str = str(buyer_name).lower()
         if any(pattern.lower() in buyer_name_str for pattern in fake_patterns):
             return False
-
+    
     # If we have items or a grand total, consider it valid even if IDs/names are missing
     has_items = bool(invoice_data.items)
     has_grand_total = invoice_data.grand_total is not None
@@ -476,7 +487,7 @@ def _is_valid_extraction(invoice_data: InvoiceData) -> bool:
     # Reject only if there are no identifiers AND no items AND no totals
     if not (invoice_num or buyer_name or has_items or has_grand_total):
         return False
-
+    
     return True
 
 
@@ -507,7 +518,7 @@ def extract_invoice_data_from_text(text: str) -> Optional[InvoiceData]:
             temperature=0,
             max_tokens=2000  # Increased for more detailed extraction
         )
-        
+
         # Extract JSON from response
         json_content = response.choices[0].message.content
         data = json.loads(json_content)
@@ -517,12 +528,23 @@ def extract_invoice_data_from_text(text: str) -> Optional[InvoiceData]:
         
         # Validate and convert using Pydantic
         invoice_data = InvoiceData(**data)
+
+        # Fallback: if phone_number is still missing, try to parse it directly
+        # from the raw text using a simple regex on 'رقم الهاتف'.
+        if not invoice_data.phone_number and text:
+            norm_text = re.sub(r"[ \t]+", " ", text)
+            m_phone = re.search(r"رقم الهاتف[:：]?\s*([0-9٠-٩\-\s]+)", norm_text)
+            if m_phone:
+                raw_phone = m_phone.group(1).strip()
+                cleaned_phone = _clean_phone_number(raw_phone)
+                if cleaned_phone:
+                    invoice_data.phone_number = cleaned_phone
         
         # Post-process numeric fields
         invoice_data = _post_process_invoice_data(invoice_data)
         
         return invoice_data
-        
+
     except Exception as e:
         return None
 
@@ -710,6 +732,16 @@ def extract_invoice_data_from_pdf_text_with_lines(
     2. Then, for each item, align the description field to the exact PDF line
        containing that row's numeric values, so word order is preserved.
     """
+    # 0) First, try the deterministic parser that reads الوصف/الكمية/سعر الوحدة/المبلغ/الخصم/الاجمالي
+    # directly from the PDF text. This guarantees the description (الوصف) is taken
+    # verbatim from the PDF lines, without GPT rephrasing it.
+    det = extract_invoice_data_from_pdf_text(text)
+    if det and det.items:
+        return det
+
+    # 1) If deterministic parsing fails (for a different layout), fall back to
+    # GPT over full text, then align each item description to the exact PDF
+    # line that contains the row's numbers (preserves word order from PDF).
     base = extract_invoice_data_from_text(text)
     if not base:
         return None

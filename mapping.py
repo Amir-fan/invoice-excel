@@ -50,7 +50,10 @@ def create_invoice_rows(invoice_data: InvoiceData) -> List[Dict[str, Any]]:
     
     # If there are line items, create one row per item
     if invoice_data.items and len(invoice_data.items) > 0:
-        for item in invoice_data.items:
+        # Keep grand total only once per invoice (first row) to avoid confusion
+        grand_total_value = invoice_data.grand_total if invoice_data.grand_total is not None else ""
+
+        for idx, item in enumerate(invoice_data.items):
             row = header_data.copy()
             
             # Add line item specific data
@@ -78,8 +81,8 @@ def create_invoice_rows(invoice_data: InvoiceData) -> List[Dict[str, Any]]:
                 # Calculate from amount - discount
                 row["الاجمالي"] = row["المبلغ"] - row["الخصم"]
             
-            # Grand total (same for all rows from this invoice)
-            row["إجمالي قيمة الفاتورة"] = invoice_data.grand_total if invoice_data.grand_total is not None else 0
+            # Grand total (إجمالي قيمة الفاتورة) - only on the first row for this invoice
+            row["إجمالي قيمة الفاتورة"] = grand_total_value if idx == 0 else ""
             
             rows.append(row)
     else:

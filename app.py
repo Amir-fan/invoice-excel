@@ -366,29 +366,25 @@ def create_excel_file(rows: list) -> bytes:
         cell.font = Font(bold=True, size=12)
         cell.alignment = Alignment(horizontal='center', vertical='center')
     
+    # Define numeric headers for alignment only (no rounding/formatting forced)
+    numeric_headers = [
+        "الكمية", "سعر الوحدة", "المبلغ", "الخصم", "الاجمالي",
+        "إجمالي قيمة الفاتورة", "تسلسل مصدر الدخل", "الرقم الضريبي"
+    ]
+
     # Write data rows (one per line item)
     for row_idx, row_data in enumerate(rows, start=2):  # Start at row 2 (after header)
         for col_idx, header in enumerate(ARABIC_HEADERS, 1):
-            value = row_data.get(header, 0)
-
-            # For numeric monetary fields we keep up to 3 decimal places (as in invoices)
-            # to avoid Excel rounding 1999.998 to 2000.00 in the display.
-            numeric_headers = [
-                "الكمية", "سعر الوحدة", "المبلغ", "الخصم", "الاجمالي",
-                "إجمالي قيمة الفاتورة", "تسلسل مصدر الدخل", "الرقم الضريبي"
-            ]
-            if header in numeric_headers and isinstance(value, (int, float)):
-                value = round(float(value), 3)
+            # Use the value exactly as provided in rows; do not round or force decimals
+            value = row_data.get(header, "")
 
             cell = ws.cell(row=row_idx, column=col_idx, value=value)
             
-            # Format numeric cells
-            if isinstance(value, (int, float)) and header in numeric_headers:
-                # Use three decimal places to match invoice formatting
-                cell.number_format = '#,##0.000'
+            # Align numeric-looking columns to the right for readability,
+            # but don't enforce any specific number format or decimal places.
+            if header in numeric_headers:
                 cell.alignment = Alignment(horizontal='right', vertical='center')
             else:
-                # Text fields - center align
                 cell.alignment = Alignment(horizontal='center', vertical='center')
     
     # Auto-adjust column widths
