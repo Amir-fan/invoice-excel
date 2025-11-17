@@ -2,7 +2,7 @@ from typing import Dict, Any, Optional, List
 from ai import InvoiceData, InvoiceItem
 
 # Arabic column headers in the exact order required (RIGHT to LEFT)
-# These headers match the fields requested by the user
+# These headers match the fields requested by the user, including VAT details
 ARABIC_HEADERS = [
     "الاسم التجاري",                    # Commercial Name
     "الرقم الضريبي",                    # Tax Number
@@ -18,10 +18,14 @@ ARABIC_HEADERS = [
     "الوصف",                           # Description
     "الكمية",                          # Quantity
     "سعر الوحدة",                      # Unit Price
-    "المبلغ",                          # Amount
+    "المبلغ",                          # Amount (before discount)
     "الخصم",                           # Discount
-    "الاجمالي",                        # Total (line total)
-    "إجمالي قيمة الفاتورة"            # Total Invoice Value
+    "الاجمالي بعد الخصم",              # Line subtotal after discount
+    "نسبة الضريبة العامة",             # VAT rate (%)
+    "قيمة الضريبة العامة",             # VAT amount
+    "الاجمالي بعد الضريبة",            # Line total after tax
+    "إجمالي قيمة الفاتورة",            # Grand total per invoice
+    "مجموع قيمة الضريبة العامة (JOD)", # Total VAT amount per invoice
 ]
 
 def create_invoice_rows(invoice_data: InvoiceData) -> List[Dict[str, Any]]:
@@ -52,6 +56,8 @@ def create_invoice_rows(invoice_data: InvoiceData) -> List[Dict[str, Any]]:
     if invoice_data.items and len(invoice_data.items) > 0:
         # Keep grand total only once per invoice (first row) to avoid confusion
         grand_total_value = invoice_data.grand_total if invoice_data.grand_total is not None else ""
+        # Same for total VAT across the invoice
+        total_vat_value = invoice_data.total_tax if invoice_data.total_tax is not None else ""
 
         for idx, item in enumerate(invoice_data.items):
             row = header_data.copy()
@@ -68,21 +74,31 @@ def create_invoice_rows(invoice_data: InvoiceData) -> List[Dict[str, Any]]:
                 row["المبلغ"] = item.quantity * item.unit_price
             else:
                 row["المبلغ"] = item.line_subtotal if item.line_subtotal is not None else 0
-            
+
             # Discount (الخصم)
             row["الخصم"] = item.discount if item.discount is not None else 0
-            
-            # Line total (الاجمالي) - total for this line item
-            if item.line_total is not None:
-                row["الاجمالي"] = item.line_total
-            elif item.line_subtotal is not None:
-                row["الاجمالي"] = item.line_subtotal - (item.discount or 0) + (item.tax_amount or 0)
+
+            # Line subtotal after discount (الاجمالي بعد الخصم)
+            if item.line_subtotal is not None:
+                row["الاجمالي بعد الخصم"] = item.line_subtotal
             else:
-                # Calculate from amount - discount
-                row["الاجمالي"] = row["المبلغ"] - row["الخصم"]
-            
+                # Compute as amount - discount when not explicitly provided
+                row["الاجمالي بعد الخصم"] = row["المبلغ"] - row["الخصم"]
+
+            # VAT rate and amount at line level
+            row["نسبة الضريبة العامة"] = item.tax_rate if item.tax_rate is not None else 0
+            row["قيمة الضريبة العامة"] = item.tax_amount if item.tax_amount is not None else 0
+
+            # Line total after tax (الاجمالي بعد الضريبة)
+            if item.line_total is not None:
+                row["الاجمالي بعد الضريبة"] = item.line_total
+            else:
+                row["الاجمالي بعد الضريبة"] = row["الاجمالي بعد الخصم"] + row["قيمة الضريبة العامة"]
+
             # Grand total (إجمالي قيمة الفاتورة) - only on the first row for this invoice
             row["إجمالي قيمة الفاتورة"] = grand_total_value if idx == 0 else ""
+            # Total VAT for the whole invoice - only on the first row
+            row["مجموع قيمة الضريبة العامة (JOD)"] = total_vat_value if idx == 0 else ""
             
             rows.append(row)
     else:
@@ -93,8 +109,12 @@ def create_invoice_rows(invoice_data: InvoiceData) -> List[Dict[str, Any]]:
         row["سعر الوحدة"] = 0
         row["المبلغ"] = 0
         row["الخصم"] = 0
-        row["الاجمالي"] = 0
+        row["الاجمالي بعد الخصم"] = 0
+        row["نسبة الضريبة العامة"] = 0
+        row["قيمة الضريبة العامة"] = 0
+        row["الاجمالي بعد الضريبة"] = 0
         row["إجمالي قيمة الفاتورة"] = invoice_data.grand_total if invoice_data.grand_total is not None else 0
+        row["مجموع قيمة الضريبة العامة (JOD)"] = invoice_data.total_tax if invoice_data.total_tax is not None else 0
         rows.append(row)
     
     return rows

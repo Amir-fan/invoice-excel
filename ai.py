@@ -63,14 +63,14 @@ class InvoiceData(BaseModel):
     
     # Totals
     total_discount: Optional[float] = None  # مجموع قيمة الخصم
-    grand_total: Optional[float] = None  # إجمالي قيمة الفاتورة
+    grand_total: Optional[float] = None  # إجمالي قيمة الفاتورة (after VAT)
     
-    # Legacy fields for backwards compatibility
+    # Legacy / additional totals for backwards compatibility
     invoice_number: Optional[str] = None
     customer_name: Optional[str] = None
     seller_name: Optional[str] = None
-    subtotal: Optional[float] = None
-    total_tax: Optional[float] = None
+    subtotal: Optional[float] = None              # إجمالي الفاتورة قبل الخصم
+    total_tax: Optional[float] = None             # مجموع قيمة الضريبة العامة (JOD)
 
 
 # ============================================================================
@@ -124,7 +124,7 @@ Look for sections labeled "المشتري" or buyer info:
 - المدينة (City) - Look for "المدينة:" followed by city name (e.g., عمان)
 
 **LINE ITEMS TABLE (جدول البنود):**
-For each row in the items table, extract:
+For each row in the items table, extract ALL columns you see, especially VAT columns:
 - الوصف (Description) - Item description. COPY THE TEXT EXACTLY as it appears in the table cell.
   - Do NOT summarize, change wording, or add extra words.
   - Do NOT translate between Arabic and English. Keep the original language and spelling.
@@ -133,10 +133,15 @@ For each row in the items table, extract:
 - سعر الوحدة (Unit Price) - Price per unit. Use the exact digits printed on the invoice.
 - المبلغ (Amount) - Use the exact amount printed on the invoice. Do NOT recalculate or round.
 - الخصم (Discount) - Discount amount (may be 0). Use the exact printed value.
-- الاجمالي (Line Total) - Total for this line. Use the exact printed value.
+- الإجمالي بعد الخصم (Line subtotal) - Total after discount but BEFORE VAT. Use the exact printed value (if present).
+- نسبة الضريبة العامة / نسبة الضريبة القيمة المضافة (Tax Rate) - e.g. 16%. Use the printed percentage or number.
+- قيمة الضريبة العامة / قيمة الضريبة القيمة المضافة (Tax Amount) - VAT amount for this line. Use the exact printed value.
+- الاجمالي / الاجمالي بعد الضريبة (Line Total) - Total for this line AFTER VAT. Use the exact printed value.
 
 **TOTALS (الإجماليات) - Usually bottom-right:**
+- إجمالي الفاتورة قبل الخصم (Subtotal before discount, JOD) - If present, use the exact printed number.
 - مجموع قيمة الخصم (Total Discount) - Look for this label followed by amount. Use the exact printed number.
+- مجموع قيمة الضريبة العامة (Total VAT amount, JOD) - Look for this label followed by amount. Use the exact printed number.
 - إجمالي قيمة الفاتورة (Total Invoice Value) - Look for this label at the bottom. Use the exact printed number.
 
 SPECIAL ATTENTION:
@@ -177,7 +182,9 @@ SCHEMA (VERY IMPORTANT):
     }
   ],
   "total_discount": number or null,
-  "grand_total": number or null
+  "grand_total": number or null,
+  "subtotal": number or null,
+  "total_tax": number or null
 }
 
 CRITICAL:
@@ -264,6 +271,10 @@ def _post_process_extracted_data(data: Dict[str, Any]) -> Dict[str, Any]:
         "العنوان": "city",  # Treat address as city when no separate city field
         "مجموع قيمة الخصم": "total_discount",
         "إجمالي قيمة الفاتورة": "grand_total",
+        "إجمالي الفاتورة قبل الخصم": "subtotal",
+        "إجمالي الفاتورة قبل الخصم (JOD)": "subtotal",
+        "مجموع قيمة الضريبة العامة": "total_tax",
+        "مجموع قيمة الضريبة العامة (JOD)": "total_tax",
     }
 
     for ar_key, en_key in arabic_to_english.items():
@@ -306,10 +317,33 @@ def _post_process_extracted_data(data: Dict[str, Any]) -> Dict[str, Any]:
                 "unit_price": item.get("unit_price") or item.get("سعر الوحدة"),
                 "amount": item.get("amount") or item.get("المبلغ"),
                 "discount": item.get("discount") or item.get("الخصم"),
-                "line_subtotal": item.get("line_subtotal"),
-                "tax_rate": item.get("tax_rate"),
-                "tax_amount": item.get("tax_amount"),
-                "line_total": item.get("line_total") or item.get("الاجمالي"),
+                # Line subtotal after discount (الإجمالي بعد الخصم)
+                "line_subtotal": (
+                    item.get("line_subtotal")
+                    or item.get("الاجمالي بعد الخصم")
+                    or item.get("الإجمالي بعد الخصم")
+                ),
+                # VAT rate (نسبة الضريبة العامة / نسبة الضريبة القيمة المضافة)
+                "tax_rate": (
+                    item.get("tax_rate")
+                    or item.get("نسبة الضريبة العامة")
+                    or item.get("نسبة الضريبة القيمة المضافة")
+                ),
+                # VAT amount (قيمة الضريبة العامة / قيمة الضريبة القيمة المضافة)
+                "tax_amount": (
+                    item.get("tax_amount")
+                    or item.get("قيمة الضريبة العامة")
+                    or item.get("قيمة الضريبة")
+                    or item.get("قيمة الضريبة القيمة المضافة")
+                ),
+                # Line total after tax (الاجمالي / الاجمالي بعد الضريبة)
+                "line_total": (
+                    item.get("line_total")
+                    or item.get("الاجمالي")
+                    or item.get("الإجمالي")
+                    or item.get("الاجمالي بعد الضريبة")
+                    or item.get("الإجمالي بعد الضريبة")
+                ),
             }
             normalized_items.append(norm_item)
         data["items"] = normalized_items
@@ -815,10 +849,14 @@ def extract_invoice_data_from_pdf_text(text: str) -> Optional[InvoiceData]:
         # postal_code = m_contact.group(3)  # not used now
 
     # Totals (from footer)
+    subtotal_raw = search(r"إجمالي الفاتورة قبل الخصم[^\d]*([0-9٠-٩\.,]+)")
     total_discount_raw = search(r"مجموع قيمة الخصم[^\d]*([0-9٠-٩\.,]+)")
+    total_tax_raw = search(r"مجموع قيمة الضريبة العامة[^\d]*([0-9٠-٩\.,]+)")
     grand_total_raw = search(r"إجمالي قيمة الفاتورة[^\d]*([0-9٠-٩\.,]+)")
 
+    subtotal = extract_number(subtotal_raw) if subtotal_raw else None
     total_discount = extract_number(total_discount_raw) if total_discount_raw else None
+    total_tax = extract_number(total_tax_raw) if total_tax_raw else None
     grand_total = extract_number(grand_total_raw) if grand_total_raw else None
 
     # Line items: find table header and parse following lines until totals
@@ -897,7 +935,9 @@ def extract_invoice_data_from_pdf_text(text: str) -> Optional[InvoiceData]:
         "phone_number": phone_number_raw,
         "city": city,
         "items": [item.model_dump() for item in items],
+        "subtotal": subtotal,
         "total_discount": total_discount,
+        "total_tax": total_tax,
         "grand_total": grand_total,
     }
 
